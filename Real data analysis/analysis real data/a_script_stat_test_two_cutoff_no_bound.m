@@ -1,0 +1,182 @@
+
+clc
+close all
+clear
+
+lstep=5;
+
+tau=1;
+row_ind=1;
+col_ind=1;
+nsymbols=2;
+alpha=0.05;
+resize_param=0.1;
+
+for frame1=500%:505
+    frame2_num=[frame1+tau,440:489];
+
+    lambda_array1=1:lstep:71;     %%101
+    lambda_array2=1:lstep:71;     %%101
+
+    all_pr=zeros(length(lambda_array1),length(lambda_array2));
+    true_te=zeros(length(lambda_array1),length(lambda_array2));
+    pass_or_fail=zeros(length(lambda_array1),length(lambda_array2));
+    true_prob=cell(length(lambda_array1),length(lambda_array2));
+    surrogate_prob=cell(length(lambda_array1),length(lambda_array2));
+    surrogate_te=cell(length(lambda_array1),length(lambda_array2));
+
+    for lambda_ind1=1:length(lambda_array1)
+        lambda1=lambda_array1(lambda_ind1);
+
+        parfor lambda_ind2=1:length(lambda_array2)
+            lambda2=lambda_array2(lambda_ind2);
+
+            if lambda1>lambda2
+
+                tic;
+                x= -lambda1:lambda1;
+                y= -lambda1:lambda1;
+
+                [X,Y]=meshgrid(x,y);
+                X=X(:);
+                Y=Y(:);
+                I=[];
+
+                I(1,:)=X((X.^2 + Y.^2 )<lambda1^2 & (X.^2 + Y.^2 )>=lambda2^2);
+                I(2,:)= Y((X.^2 + Y.^2)<lambda1^2 & (X.^2 + Y.^2 )>=lambda2^2);
+
+                ind=1;
+                tr_te=zeros(1,1);
+                tr_pr=cell(1,1);
+                sur_te=zeros(1,length(frame2_num)-1);
+                sur_pr=cell(1,length(frame2_num)-1);
+
+                data_x=load(['grid_intensity_data/grid_intensity_data_',num2str(frame1,'%.4d'),'.mat']);
+                data1= imresize(double(data_x.lambda_grid_intensity{row_ind,col_ind}),resize_param)>0;
+                [a,b]=size(data1);
+
+                for frame_ind2=1:length(frame2_num)
+                    frame2=frame2_num(frame_ind2);
+
+                    if frame_ind2==1
+                        data_y=load(['grid_intensity_data/grid_intensity_data_',num2str(frame2,'%.4d'),'.mat']);
+                        data2= imresize(double(data_y.lambda_grid_intensity{row_ind,col_ind}),resize_param)>0;
+                    else
+                        data_y=load(['grid_intensity_data_2nd_experiment/grid_intensity_data_',num2str(frame2,'%.4d'),'.mat']);
+                        datayy= imresize(double(data_y.lambda_grid_intensity{row_ind,col_ind}),resize_param)>0;
+                        data2= datayy(1:a,1:b);
+                    end
+
+                    total_count=0;
+                    counts=zeros(1,8);
+                    max_x=size(data1,1);
+                    max_y=size(data1,2);
+                    im_data=zeros( max_x, max_y);
+
+                    for i=1:max_x
+                        for j=1:max_y
+
+                            if(data1(i,j)==0 && data2(i,j)==0)
+                                im_data(i,j)=1;
+                            elseif(data1(i,j)==0 && data2(i,j)==1)
+                                im_data(i,j)=2;
+                            elseif(data1(i,j)==1 && data2(i,j)==0)
+                                im_data(i,j)=3;
+                            else
+                                im_data(i,j)=4;
+                            end
+
+                        end
+                    end
+
+                    for ind1=lambda1+1:max_x-(lambda1+1)
+                        for ind2=lambda1+1:max_y-(lambda1+1)
+                            curr_I=[];
+                            curr_I(1,:) = I(1,:) + ind1;
+                            curr_I(2,:) = I(2,:) + ind2;
+                            if ind1 <= lambda1 || ind2 <= lambda1 || ind1> max_x-lambda1 || ind2>max_y-lambda1
+
+                                curr_nearby_indices = curr_I(:, curr_I(1,:) > 0 & ...
+                                    curr_I(2,:) > 0 & ...
+                                    curr_I(1,:) <= max_x & ...
+                                    curr_I(2,:) <= max_y);
+                            else
+                                curr_nearby_indices = curr_I;
+                            end
+                            curr_im_data= im_data(sub2ind([max_x max_y],...
+                                curr_nearby_indices(1,:),curr_nearby_indices(2,:)));
+
+                            curr_xdata=data1(ind1,ind2);
+                            if curr_xdata==0
+
+                                counts(1) = counts(1) + sum(curr_im_data==1); %000
+
+                                counts(2) = counts(2) + sum(curr_im_data==2); %001
+
+                                counts(3) = counts(3) + sum(curr_im_data==3); %010
+
+                                counts(4) = counts(4) + sum(curr_im_data==4); %011
+                            else
+
+                                counts(5) = counts(5) + sum(curr_im_data==1); %100
+
+                                counts(6) = counts(6) + sum(curr_im_data==2); %101
+
+                                counts(7) = counts(7) + sum(curr_im_data==3); %110
+
+                                counts(8) = counts(8) + sum(curr_im_data==4); %111
+                            end
+                            total_count=total_count+length(curr_im_data);
+                        end
+                    end
+
+                    pr_y_y_x=counts./total_count;
+                    if(sum(pr_y_y_x)~=1)
+                        'error';
+                    end
+
+                    if frame_ind2==1
+                        tr_pr{1,1}= pr_y_y_x;
+                        tr_te(1,1)=calc_te_new_code(pr_y_y_x,nsymbols);
+                    else
+                        sur_pr{1,ind}= pr_y_y_x;
+                        sur_te(1,ind)=calc_te_new_code(pr_y_y_x,nsymbols);
+                        ind=ind+1;
+                    end
+
+                end
+
+                %%%%%%%%%% statistical test %%%%%%%%%%%%%%%%%
+                mdi= sur_te;         % surro data set %
+                cb=1-alpha;          % confidence level%
+                ce=cumsum(1/numel(mdi)*ones(1,numel(mdi)));
+                smd=sort(mdi,'ascend');
+                d_cut=smd(find(ce<=cb,1,'last'));
+
+                curr_pass_or_fail=1;                   %%%% assume that curr_pass_or_fail=1 means significant
+                all_pr(lambda_ind1,lambda_ind2)=d_cut;
+                pass_or_fail(lambda_ind1,lambda_ind2) = curr_pass_or_fail & (tr_te > d_cut);
+
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+                true_prob{lambda_ind1,lambda_ind2}=tr_pr;
+                surrogate_prob{lambda_ind1,lambda_ind2}=sur_pr;
+
+                true_te(lambda_ind1,lambda_ind2)=tr_te;
+                surrogate_te{lambda_ind1,lambda_ind2}=sur_te;
+                toc;
+            else
+                all_pr(lambda_ind1,lambda_ind2)=NaN;
+                pass_or_fail(lambda_ind1,lambda_ind2) = NaN;
+                true_prob{lambda_ind1,lambda_ind2}=NaN;
+                surrogate_prob{lambda_ind1,lambda_ind2}=NaN;
+                true_te(lambda_ind1,lambda_ind2)=NaN;
+                surrogate_te{lambda_ind1,lambda_ind2}=NaN;
+            end
+
+        end
+    end
+    save(['data_stat_test/stat_test_lstep_',num2str(lstep),'_frame_',num2str(frame1),'_',...
+        num2str(frame1+tau),'_surframe_440_489.mat'],'true_te','surrogate_te','true_prob',...
+        'surrogate_prob','pass_or_fail','all_pr')
+end

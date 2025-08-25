@@ -1,0 +1,47 @@
+%%Mohiuddin code: Compute transfer entropy
+
+function [transfer_ent_x_y] = transfer_ent_function(curr_data,symbols)          %% x,y,tau
+
+data=curr_data;
+transfer_ent_x_y=0;
+if (isempty(data))
+    transfer_ent_x_y=0;
+else
+%% Compute probability p_x,p_y,p_z,p_xy,p_zx,p_zy,p_zyx from time series:
+p=zeros(length(symbols),length(symbols),length(symbols));
+time_series1=[data(:,3)]';       % x_t
+time_series2=[data(:,2)]';       % y_t   
+time_series3=[data(:,1)]';       % y_t_1
+
+N=length(time_series1);
+for sym_ind3=1:length(symbols)        
+    for sym_ind2=1:length(symbols)
+         for sym_ind1=1:length(symbols)
+             curr_symbols_x=find(time_series1==symbols(sym_ind1));
+             curr_symbols_y=find(time_series2==symbols(sym_ind2));
+             curr_symbols_z=find(time_series3==symbols(sym_ind3));
+             curr_symbols_xy=find(time_series1==symbols(sym_ind1) & time_series2==symbols(sym_ind2));
+             curr_symbols_zx=find(time_series3==symbols(sym_ind3) & time_series1==symbols(sym_ind1));
+             curr_symbols_zy=find(time_series3==symbols(sym_ind3) & time_series2==symbols(sym_ind2));
+             curr_symbols_zyx=find(time_series3==symbols(sym_ind3) & time_series2==symbols(sym_ind2)& time_series1==symbols(sym_ind1));
+             pr_x(sym_ind1)=length(curr_symbols_x)/N;
+             pr_y(sym_ind2)=length(curr_symbols_y)/N;
+             pr_z(sym_ind3)=length(curr_symbols_z)/N;
+             pr_xy(sym_ind1,sym_ind2)=length(curr_symbols_xy)/N;
+             pr_zx(sym_ind3,sym_ind1)=length(curr_symbols_zx)/N; 
+             pr_zy(sym_ind3,sym_ind2)=length(curr_symbols_zy)/N;
+             pr_zyx(sym_ind3,sym_ind2,sym_ind1)=length(curr_symbols_zyx)/N;
+         end
+    end
+end
+%% Compute transfer entropy TE_x_y from the probabilities of time series:
+for ind3=1:length(symbols)             
+    for ind2=1:length(symbols)
+        for ind1=1:length(symbols)
+            if  pr_y(ind2) ~=0 && pr_xy(ind1,ind2)~=0  && pr_zy(ind3,ind2)~=0 && pr_zyx(ind3,ind2,ind1)~=0 &&pr_y(ind2) ~=1 && pr_xy(ind1,ind2)~=1  && pr_zy(ind3,ind2)~=1 && pr_zyx(ind3,ind2,ind1)~=1
+                transfer_ent_x_y=transfer_ent_x_y+(pr_zyx(ind3,ind2,ind1).*log2((pr_zyx(ind3,ind2,ind1).*pr_y(ind2))/(pr_xy(ind1,ind2).*pr_zy(ind3,ind2))));
+            end
+        end
+    end
+end
+end
